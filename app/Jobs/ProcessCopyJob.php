@@ -615,7 +615,8 @@ class ProcessCopyJob implements ShouldQueue
     private function setupGoogleClient(): GoogleClient
     {
         $client = new GoogleClient();
-        $client->setAuthConfig(storage_path('app/google-credentials.json'));
+        $client->setClientId(env('GOOGLE_CLIENT_ID'));
+        $client->setClientSecret(env('GOOGLE_CLIENT_SECRET'));
         $client->addScope([
             'https://www.googleapis.com/auth/documents',
             'https://www.googleapis.com/auth/drive.readonly' // Keep if needed elsewhere

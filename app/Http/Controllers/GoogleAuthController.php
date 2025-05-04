@@ -16,7 +16,8 @@ class GoogleAuthController extends Controller
     private function getClient()
     {
         $client = new GoogleClient();
-        $client->setAuthConfig(storage_path('app/google-credentials.json'));
+        $client->setClientId(env('GOOGLE_CLIENT_ID'));
+        $client->setClientSecret(env('GOOGLE_CLIENT_SECRET'));
         $client->setRedirectUri(url('/auth/google/callback'));
         $client->addScope([
             'https://www.googleapis.com/auth/drive.file', 
