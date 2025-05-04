@@ -18,7 +18,9 @@ class GoogleAuthController extends Controller
         $client = new GoogleClient();
         $client->setClientId(env('GOOGLE_CLIENT_ID'));
         $client->setClientSecret(env('GOOGLE_CLIENT_SECRET'));
-        $client->setRedirectUri(url('/auth/google/callback'));
+        $client->setRedirectUri(env('GOOGLE_REDIRECT_URI', url('/auth/google/callback')));
+        // Ghi log URI để dễ debug
+    \Log::info("Using redirect URI: " . env('GOOGLE_REDIRECT_URI', url('/auth/google/callback')));
         $client->addScope([
             'https://www.googleapis.com/auth/drive.file', 
             'https://www.googleapis.com/auth/documents',
