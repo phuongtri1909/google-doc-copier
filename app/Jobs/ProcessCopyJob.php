@@ -47,7 +47,7 @@ class ProcessCopyJob implements ShouldQueue
 
     public function handle()
     {
-        Log::info("Starting job #{$this->copyJob->id}, attempt #{$this->attempts()}");
+        //Log::info("Starting job #{$this->copyJob->id}, attempt #{$this->attempts()}");
 
         try {
             // --- Setup Google Client and Authentication ---
@@ -55,16 +55,16 @@ class ProcessCopyJob implements ShouldQueue
             $docsService = new Docs($client);
 
             // --- Get Source Document Content ---
-            Log::info("Job #{$this->copyJob->id}: Fetching source doc {$this->copyJob->source_doc_id}");
+            //Log::info("Job #{$this->copyJob->id}: Fetching source doc {$this->copyJob->source_doc_id}");
             $sourceDoc = $docsService->documents->get($this->copyJob->source_doc_id);
             $sourceStructuralElements = $sourceDoc->getBody()->getContent();
             $totalElements = count($sourceStructuralElements);
-            Log::info("Job #{$this->copyJob->id}: Source doc has {$totalElements} structural elements.");
+            //Log::info("Job #{$this->copyJob->id}: Source doc has {$totalElements} structural elements.");
 
             // --- Update Total Elements Count ---
             // Using total_sentences field to store total elements count
             if ($this->copyJob->total_sentences !== $totalElements) {
-                 Log::info("Job #{$this->copyJob->id}: Updating total elements from {$this->copyJob->total_sentences} to {$totalElements}.");
+                // Log::info("Job #{$this->copyJob->id}: Updating total elements from {$this->copyJob->total_sentences} to {$totalElements}.");
                  $this->copyJob->total_sentences = $totalElements;
                  // Optional: Reset position if total changes drastically?
                  // if ($this->copyJob->current_position >= $totalElements) {
@@ -75,7 +75,7 @@ class ProcessCopyJob implements ShouldQueue
 
             // --- Check if Copying is Complete ---
             if ($this->copyJob->current_position >= $totalElements) {
-                Log::info("Job #{$this->copyJob->id}: All elements already processed ({$this->copyJob->current_position}/{$totalElements}). Setting to completed.");
+               // Log::info("Job #{$this->copyJob->id}: All elements already processed ({$this->copyJob->current_position}/{$totalElements}). Setting to completed.");
                 $this->copyJob->status = 'completed';
                 $this->copyJob->error_message = null; // Clear previous errors
                 $this->copyJob->save();
@@ -88,16 +88,16 @@ class ProcessCopyJob implements ShouldQueue
             $elementsToCopy = array_slice($sourceStructuralElements, $startIndex, self::ELEMENTS_PER_BATCH);
 
             if (empty($elementsToCopy)) {
-                 Log::info("Job #{$this->copyJob->id}: No more elements to copy in this batch range ({$startIndex} to {$endIndex}). Total: {$totalElements}. Setting to completed.");
+                // Log::info("Job #{$this->copyJob->id}: No more elements to copy in this batch range ({$startIndex} to {$endIndex}). Total: {$totalElements}. Setting to completed.");
                  $this->copyJob->status = 'completed';
                  $this->copyJob->error_message = null;
                  $this->copyJob->save();
                  return;
             }
-            Log::info("Job #{$this->copyJob->id}: Processing elements {$startIndex} to " . ($endIndex - 1));
+           // Log::info("Job #{$this->copyJob->id}: Processing elements {$startIndex} to " . ($endIndex - 1));
 
             // --- Get Destination Document End Index ---
-            Log::info("Job #{$this->copyJob->id}: Fetching destination doc {$this->copyJob->destination_doc_id} to find insertion point.");
+           // Log::info("Job #{$this->copyJob->id}: Fetching destination doc {$this->copyJob->destination_doc_id} to find insertion point.");
             $destDoc = $docsService->documents->get($this->copyJob->destination_doc_id);
             $destContent = $destDoc->getBody()->getContent();
             $insertAtIndex = 1; // Default for empty doc or inserting at the very beginning
@@ -111,7 +111,7 @@ class ProcessCopyJob implements ShouldQueue
                      $insertAtIndex = 1; // Cannot insert at index 0
                  }
             }
-            Log::info("Job #{$this->copyJob->id}: Determined insertion point at index {$insertAtIndex}");
+           // Log::info("Job #{$this->copyJob->id}: Determined insertion point at index {$insertAtIndex}");
 
 
             // --- Prepare Batch Update Requests ---
@@ -120,7 +120,7 @@ class ProcessCopyJob implements ShouldQueue
 
             foreach ($elementsToCopy as $elementIndex => $structuralElement) {
                 $elementNumber = $startIndex + $elementIndex; // Actual index in source doc
-                Log::debug("Job #{$this->copyJob->id}: Processing element #{$elementNumber}");
+               // Log::debug("Job #{$this->copyJob->id}: Processing element #{$elementNumber}");
 
                 // --- Handle Paragraph Elements ---
                 if (isset($structuralElement->paragraph)) {
@@ -135,7 +135,7 @@ class ProcessCopyJob implements ShouldQueue
 
                     // Kiểm tra xem paragraph có phải là heading không
                     if ($namedStyleType && $namedStyleType !== 'NORMAL_TEXT') {
-                        Log::debug("Job #{$this->copyJob->id}: Đoạn văn #{$elementNumber} có kiểu đặt tên: {$namedStyleType}");
+                      //  Log::debug("Job #{$this->copyJob->id}: Đoạn văn #{$elementNumber} có kiểu đặt tên: {$namedStyleType}");
                         $paragraphStyleChanged = true;
                     }
 
@@ -164,7 +164,7 @@ class ProcessCopyJob implements ShouldQueue
 
                                 if ($textLength > 0) {
                                     // 1. Insert Text
-                                    Log::debug("Job #{$this->copyJob->id}: Inserting text '{$text}' at index {$currentInsertIndex}");
+                                  //  Log::debug("Job #{$this->copyJob->id}: Inserting text '{$text}' at index {$currentInsertIndex}");
                                     $requests[] = new Request([
                                         'insertText' => new InsertTextRequest([
                                             'location' => new Location(['index' => $currentInsertIndex]),
@@ -176,7 +176,7 @@ class ProcessCopyJob implements ShouldQueue
                                     if ($textStyle && $this->hasFormatting($textStyle)) {
                                         $styleFields = $this->getStyleFields($textStyle);
                                         if (!empty($styleFields)) {
-                                            Log::debug("Job #{$this->copyJob->id}: Applying style ({$styleFields}) to range [{$currentInsertIndex}, " . ($currentInsertIndex + $textLength) . "]");
+                                         //  Log::debug("Job #{$this->copyJob->id}: Applying style ({$styleFields}) to range [{$currentInsertIndex}, " . ($currentInsertIndex + $textLength) . "]");
                                             $requests[] = new Request([
                                                 'updateTextStyle' => new UpdateTextStyleRequest([
                                                     'range' => new Range([
@@ -196,7 +196,7 @@ class ProcessCopyJob implements ShouldQueue
                         }
                         // --- TODO: Handle other paragraph elements like Inline Objects (Images) ---
                         elseif (isset($element->inlineObjectElement)) {
-                             Log::warning("Job #{$this->copyJob->id}: Skipping InlineObjectElement (e.g., image) in element #{$elementNumber} - Not implemented.");
+                            // Log::warning("Job #{$this->copyJob->id}: Skipping InlineObjectElement (e.g., image) in element #{$elementNumber} - Not implemented.");
                              // Complex: Would need to fetch image bytes, upload, insert inline image request
                         }
                         // Add other element types here (HorizontalRule, PageBreak etc.) if needed
@@ -234,7 +234,7 @@ class ProcessCopyJob implements ShouldQueue
                             }
                             
                             if (!empty($emptySpacingFields)) {
-                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách cho đoạn trống");
+                              //  Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách cho đoạn trống");
                                 $requests[] = new Request([
                                     'updateParagraphStyle' => new UpdateParagraphStyleRequest([
                                         'range' => new Range([
@@ -255,7 +255,7 @@ class ProcessCopyJob implements ShouldQueue
 
                     // Chèn ngắt đoạn (xuống dòng) chỉ khi cần thiết
                     if (!$isEmptyParagraph || $paragraphStyleChanged) { // Luôn thêm xuống dòng cho heading và đoạn có nội dung
-                        Log::debug("Job #{$this->copyJob->id}: Chèn ngắt đoạn (xuống dòng) tại vị trí {$currentInsertIndex}");
+                      //  Log::debug("Job #{$this->copyJob->id}: Chèn ngắt đoạn (xuống dòng) tại vị trí {$currentInsertIndex}");
                         $requests[] = new Request([
                             'insertText' => new InsertTextRequest([
                                 'location' => new Location(['index' => $currentInsertIndex]),
@@ -267,7 +267,7 @@ class ProcessCopyJob implements ShouldQueue
 
                     // --- Áp dụng paragraph style (đặc biệt là heading) nếu có ---
                     if ($paragraphStyleChanged && $paragraphStartIndex < $currentInsertIndex) {
-                        Log::debug("Job #{$this->copyJob->id}: Áp dụng kiểu định dạng {$namedStyleType} cho đoạn từ [{$paragraphStartIndex} đến {$currentInsertIndex}]");
+                       // Log::debug("Job #{$this->copyJob->id}: Áp dụng kiểu định dạng {$namedStyleType} cho đoạn từ [{$paragraphStartIndex} đến {$currentInsertIndex}]");
                         
                         // Tạo request để áp dụng named style (như HEADING_1, HEADING_2, v.v.)
                         $requests[] = new Request([
@@ -307,7 +307,7 @@ class ProcessCopyJob implements ShouldQueue
                             }
                             
                             if (!empty($fields)) {
-                                Log::debug("Job #{$this->copyJob->id}: Áp dụng style bổ sung cho đoạn: " . implode(',', $fields));
+                              //  Log::debug("Job #{$this->copyJob->id}: Áp dụng style bổ sung cho đoạn: " . implode(',', $fields));
                                 $requests[] = new Request([
                                     'updateParagraphStyle' => new UpdateParagraphStyleRequest([
                                         'range' => new Range([
@@ -342,7 +342,7 @@ class ProcessCopyJob implements ShouldQueue
                                 // Log chi tiết để debug
                                 $magnitude = $paragraphStyle->getSpaceAbove()->getMagnitude();
                                 $unit = $paragraphStyle->getSpaceAbove()->getUnit();
-                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách trên: {$magnitude} {$unit}");
+                              //  Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách trên: {$magnitude} {$unit}");
                             }
                             
                             if ($paragraphStyle->getSpaceBelow() !== null) {
@@ -352,17 +352,17 @@ class ProcessCopyJob implements ShouldQueue
                                 // Log chi tiết để debug
                                 $magnitude = $paragraphStyle->getSpaceBelow()->getMagnitude();
                                 $unit = $paragraphStyle->getSpaceBelow()->getUnit();
-                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách dưới: {$magnitude} {$unit}");
+                               // Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách dưới: {$magnitude} {$unit}");
                             }
                             
                             if ($paragraphStyle->getLineSpacing() !== null) {
                                 $spacingObj->setLineSpacing($paragraphStyle->getLineSpacing());
                                 $spacingFields[] = 'lineSpacing';
-                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách dòng: {$paragraphStyle->getLineSpacing()}");
+                              //  Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách dòng: {$paragraphStyle->getLineSpacing()}");
                             }
                             
                             if (!empty($spacingFields)) {
-                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách cho đoạn: " . implode(',', $spacingFields));
+                              //  Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách cho đoạn: " . implode(',', $spacingFields));
                                 $requests[] = new Request([
                                     'updateParagraphStyle' => new UpdateParagraphStyleRequest([
                                         'range' => new Range([
@@ -410,7 +410,7 @@ class ProcessCopyJob implements ShouldQueue
                         }
                         
                         if (!empty($additionalFields)) {
-                            Log::debug("Job #{$this->copyJob->id}: Áp dụng định dạng đoạn bổ sung: " . implode(',', $additionalFields));
+                           // Log::debug("Job #{$this->copyJob->id}: Áp dụng định dạng đoạn bổ sung: " . implode(',', $additionalFields));
                             $requests[] = new Request([
                                 'updateParagraphStyle' => new UpdateParagraphStyleRequest([
                                     'range' => new Range([
@@ -481,14 +481,14 @@ class ProcessCopyJob implements ShouldQueue
                         // Thêm ngay sau khi lấy được style từ text run đầu tiên (trong vòng lặp foreach $paragraphElements)
                         if ($namedStyleType && $namedStyleType !== 'NORMAL_TEXT') {
                             // Khi tìm thấy text run đầu tiên trong heading, debug chi tiết
-                            Log::debug("Job #{$this->copyJob->id}: Đã tìm thấy text run cho heading {$namedStyleType}");
+                           // Log::debug("Job #{$this->copyJob->id}: Đã tìm thấy text run cho heading {$namedStyleType}");
                             $this->debugTextStyle($sourceStyle, "heading {$namedStyleType}");
                         }
                         
                         // 3. Áp dụng text style nếu có các thuộc tính cần thiết
                         if (!empty($styleFields)) {
                             $styleFieldsStr = implode(',', array_unique($styleFields));
-                            Log::debug("Job #{$this->copyJob->id}: Áp dụng định dạng văn bản rõ ràng cho heading: {$styleFieldsStr}");
+                           // Log::debug("Job #{$this->copyJob->id}: Áp dụng định dạng văn bản rõ ràng cho heading: {$styleFieldsStr}");
                             
                             $requests[] = new Request([
                                 'updateTextStyle' => new UpdateTextStyleRequest([
@@ -503,14 +503,14 @@ class ProcessCopyJob implements ShouldQueue
                             
                             // 4. Ghi log chi tiết để debug
                             if ($headingTextStyle->getBold() !== null) {
-                                Log::debug("Job #{$this->copyJob->id}: Heading sẽ được áp dụng Bold = " . 
-                                          ($headingTextStyle->getBold() ? "true" : "false"));
+                              //  Log::debug("Job #{$this->copyJob->id}: Heading sẽ được áp dụng Bold = " . 
+                                      //    ($headingTextStyle->getBold() ? "true" : "false"));
                             }
                             
                             if ($headingTextStyle->getFontSize() !== null) {
                                 $fontSize = $headingTextStyle->getFontSize()->getMagnitude() . 
                                            $headingTextStyle->getFontSize()->getUnit();
-                                Log::debug("Job #{$this->copyJob->id}: Heading sẽ được áp dụng font size = {$fontSize}");
+                             //   Log::debug("Job #{$this->copyJob->id}: Heading sẽ được áp dụng font size = {$fontSize}");
                             }
                         }
                     }
@@ -518,7 +518,7 @@ class ProcessCopyJob implements ShouldQueue
                 }
                 // --- Handle Table Elements ---
                 elseif (isset($structuralElement->table)) {
-                    Log::warning("Job #{$this->copyJob->id}: Skipping Table element #{$elementNumber} - Not implemented.");
+                  //  Log::warning("Job #{$this->copyJob->id}: Skipping Table element #{$elementNumber} - Not implemented.");
                     // Complex: Would require iterating through rows/cells, creating table structure,
                     // inserting content with styles recursively.
                     // Need to insert a placeholder or estimate size to advance index? Risky.
@@ -526,27 +526,27 @@ class ProcessCopyJob implements ShouldQueue
                 }
                  // --- Handle Section Break Elements ---
                  elseif (isset($structuralElement->sectionBreak)) {
-                     Log::warning("Job #{$this->copyJob->id}: Skipping SectionBreak element #{$elementNumber} - Not implemented.");
+                   //  Log::warning("Job #{$this->copyJob->id}: Skipping SectionBreak element #{$elementNumber} - Not implemented.");
                      // Could potentially insert a page break or similar if needed.
                  }
                  // --- Handle Table of Contents ---
                  elseif (isset($structuralElement->tableOfContents)) {
-                     Log::warning("Job #{$this->copyJob->id}: Skipping TableOfContents element #{$elementNumber} - Not implemented.");
+                   //  Log::warning("Job #{$this->copyJob->id}: Skipping TableOfContents element #{$elementNumber} - Not implemented.");
                  }
                  else {
-                     Log::warning("Job #{$this->copyJob->id}: Skipping unknown structural element type at index #{$elementNumber}.");
+                  //   Log::warning("Job #{$this->copyJob->id}: Skipping unknown structural element type at index #{$elementNumber}.");
                  }
             } // End foreach ($elementsToCopy)
 
 
             // --- Execute Batch Update ---
             if (!empty($requests)) {
-                Log::info("Job #{$this->copyJob->id}: Executing batch update with " . count($requests) . " requests.");
+               // Log::info("Job #{$this->copyJob->id}: Executing batch update with " . count($requests) . " requests.");
                 $batchUpdateRequest = new BatchUpdateDocumentRequest(['requests' => $requests]);
                 $docsService->documents->batchUpdate($this->copyJob->destination_doc_id, $batchUpdateRequest);
-                Log::info("Job #{$this->copyJob->id}: Batch update successful.");
+              //  Log::info("Job #{$this->copyJob->id}: Batch update successful.");
             } else {
-                Log::info("Job #{$this->copyJob->id}: No requests generated for this batch (elements {$startIndex} to " . ($endIndex - 1) . "). Might be empty or unsupported elements.");
+               // Log::info("Job #{$this->copyJob->id}: No requests generated for this batch (elements {$startIndex} to " . ($endIndex - 1) . "). Might be empty or unsupported elements.");
             }
 
             // --- Update Job State ---
@@ -556,21 +556,21 @@ class ProcessCopyJob implements ShouldQueue
             $this->copyJob->error_message = null; // Clear error on success
             $this->copyJob->save();
 
-            Log::info("Job #{$this->copyJob->id}: Processed elements up to " . ($newPosition - 1) . ". Position now {$newPosition}/{$totalElements}. Status: {$this->copyJob->status}");
+           // Log::info("Job #{$this->copyJob->id}: Processed elements up to " . ($newPosition - 1) . ". Position now {$newPosition}/{$totalElements}. Status: {$this->copyJob->status}");
 
             // --- Dispatch Next Job if Needed ---
             if ($this->copyJob->status === 'processing') {
                 $delay = $this->copyJob->interval_seconds ?? 5; // Use interval from job or default
                 ProcessCopyJob::dispatch($this->copyJob)->delay(now()->addSeconds($delay));
-                Log::info("Job #{$this->copyJob->id}: Dispatched next job with delay {$delay}s.");
+               // Log::info("Job #{$this->copyJob->id}: Dispatched next job with delay {$delay}s.");
             } else {
-                Log::info("Job #{$this->copyJob->id} completed!");
+              //  Log::info("Job #{$this->copyJob->id} completed!");
             }
 
         } catch (Throwable $e) { // Catch broader Throwable
-            Log::error("Error processing copy job #{$this->copyJob->id} on attempt #{$this->attempts()}: " . $e->getMessage());
-            Log::error("Error Type: " . get_class($e));
-            Log::error("Trace: " . $e->getTraceAsString()); // Log stack trace
+          //  Log::error("Error processing copy job #{$this->copyJob->id} on attempt #{$this->attempts()}: " . $e->getMessage());
+          //  Log::error("Error Type: " . get_class($e));
+           // Log::error("Trace: " . $e->getTraceAsString()); // Log stack trace
 
             $this->copyJob->status = 'failed';
             $this->copyJob->error_message = get_class($e) . ': ' . $e->getMessage(); // Store error message
@@ -583,7 +583,7 @@ class ProcessCopyJob implements ShouldQueue
                  }
                  // Check if it's a rate limit error or server error to potentially retry
                  if ($e->getCode() == 429 || $e->getCode() >= 500) {
-                     Log::warning("Job #{$this->copyJob->id}: Releasing job back to queue due to Google API error (Code: {$e->getCode()}).");
+                  //   Log::warning("Job #{$this->copyJob->id}: Releasing job back to queue due to Google API error (Code: {$e->getCode()}).");
                      $this->release($this->getRetryDelay());
                      $this->copyJob->status = 'pending_retry'; // Custom status? Or keep 'processing'?
                      $this->copyJob->save();
@@ -593,11 +593,11 @@ class ProcessCopyJob implements ShouldQueue
 
              // General retry logic based on $tries and $backoff
              if ($this->attempts() < $this->tries) {
-                 Log::warning("Job #{$this->copyJob->id}: Releasing job back to queue for retry.");
+              //   Log::warning("Job #{$this->copyJob->id}: Releasing job back to queue for retry.");
                  $this->release($this->getRetryDelay());
                  $this->copyJob->status = 'pending_retry';
              } else {
-                 Log::error("Job #{$this->copyJob->id}: Job failed after maximum attempts.");
+              //   Log::error("Job #{$this->copyJob->id}: Job failed after maximum attempts.");
                  // Keep status as 'failed'
              }
              $this->copyJob->save();
@@ -631,7 +631,7 @@ class ProcessCopyJob implements ShouldQueue
         $client->setAccessToken($accessToken);
 
         if ($client->isAccessTokenExpired()) {
-            Log::info("Access token expired for job #{$this->copyJob->id}. Attempting refresh.");
+          //  Log::info("Access token expired for job #{$this->copyJob->id}. Attempting refresh.");
             $refreshToken = $this->copyJob->refresh_token ?? ($accessToken['refresh_token'] ?? null);
 
             if ($refreshToken) {
@@ -644,16 +644,16 @@ class ProcessCopyJob implements ShouldQueue
                     // Google might not always return a new refresh token
                     if (isset($newAccessToken['refresh_token'])) {
                         $this->copyJob->refresh_token = $newAccessToken['refresh_token'];
-                        Log::info("Obtained a new refresh token for job #{$this->copyJob->id}.");
+                     //   Log::info("Obtained a new refresh token for job #{$this->copyJob->id}.");
                     }
                     $this->copyJob->save();
-                    Log::info("Access token refreshed successfully for job #{$this->copyJob->id}.");
+                 //   Log::info("Access token refreshed successfully for job #{$this->copyJob->id}.");
                 } catch (Throwable $e) {
-                    Log::error("Failed to refresh access token for job #{$this->copyJob->id}: " . $e->getMessage());
+                 //   Log::error("Failed to refresh access token for job #{$this->copyJob->id}: " . $e->getMessage());
                     throw new \Exception("Access token expired and refresh failed: " . $e->getMessage());
                 }
             } else {
-                Log::error("Access token expired and no refresh token available for job #{$this->copyJob->id}");
+              //  Log::error("Access token expired and no refresh token available for job #{$this->copyJob->id}");
                 throw new \Exception("Access token expired and no refresh token available.");
             }
         }
@@ -741,30 +741,30 @@ class ProcessCopyJob implements ShouldQueue
      */
     private function debugTextStyle(TextStyle $style, string $elementDesc): void
     {
-        Log::debug("Phân tích style cho {$elementDesc}:");
+     //   Log::debug("Phân tích style cho {$elementDesc}:");
         
         if ($style->getBold() !== null) {
-            Log::debug("- Bold: " . ($style->getBold() ? "true" : "false"));
+          //  Log::debug("- Bold: " . ($style->getBold() ? "true" : "false"));
         }
         
         if ($style->getItalic() !== null) {
-            Log::debug("- Italic: " . ($style->getItalic() ? "true" : "false"));
+         //   Log::debug("- Italic: " . ($style->getItalic() ? "true" : "false"));
         }
         
         if ($style->getUnderline() !== null) {
-            Log::debug("- Underline: " . ($style->getUnderline() ? "true" : "false"));
+          //  Log::debug("- Underline: " . ($style->getUnderline() ? "true" : "false"));
         }
         
         if ($style->getFontSize() !== null) {
             $fontSize = $style->getFontSize()->getMagnitude() . 
                        ($style->getFontSize()->getUnit() ?? 'PT');
-            Log::debug("- FontSize: {$fontSize}");
+          //  Log::debug("- FontSize: {$fontSize}");
         }
         
         if ($style->getWeightedFontFamily() !== null) {
             $fontFamily = $style->getWeightedFontFamily()->getFontFamily();
             $weight = $style->getWeightedFontFamily()->getWeight();
-            Log::debug("- Font: {$fontFamily}, Weight: {$weight}");
+        //    Log::debug("- Font: {$fontFamily}, Weight: {$weight}");
         }
     }
 }
