@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('users', function (Blueprint $table) {
             $table->string('google_id')->nullable()->after('email');
-            $table->string('avatar')->nullable()->after('google_id');
+            $table->text('avatar')->nullable()->after('google_id');
             $table->string('role')->default('user')->after('password');
             $table->text('access_token')->nullable()->after('role');
             $table->text('refresh_token')->nullable()->after('access_token');

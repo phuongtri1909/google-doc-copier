@@ -17,6 +17,8 @@ use Google\Service\Docs\Request;
 use Google\Service\Docs\Range;
 use Google\Service\Docs\UpdateTextStyleRequest;
 use Google\Service\Docs\TextStyle;
+use Google\Service\Docs\UpdateParagraphStyleRequest;
+use Google\Service\Docs\ParagraphStyle;
 // Add other necessary style classes if needed, e.g., ParagraphStyle, UpdateParagraphStyleRequest
 use Illuminate\Support\Facades\Log;
 use Throwable; // Import Throwable for broader exception catching
@@ -125,6 +127,18 @@ class ProcessCopyJob implements ShouldQueue
                     $paragraph = $structuralElement->paragraph;
                     $paragraphElements = $paragraph->getElements() ?? [];
 
+                    // --- Xử lý Paragraph Styles (đặc biệt là Heading) ---
+                    $paragraphStyle = $paragraph->getParagraphStyle();
+                    $paragraphStyleChanged = false;
+                    $namedStyleType = $paragraphStyle ? $paragraphStyle->getNamedStyleType() : null;
+                    $paragraphStartIndex = $currentInsertIndex; // Lưu vị trí bắt đầu của paragraph để áp dụng style sau
+
+                    // Kiểm tra xem paragraph có phải là heading không
+                    if ($namedStyleType && $namedStyleType !== 'NORMAL_TEXT') {
+                        Log::debug("Job #{$this->copyJob->id}: Đoạn văn #{$elementNumber} có kiểu đặt tên: {$namedStyleType}");
+                        $paragraphStyleChanged = true;
+                    }
+
                     // --- TODO: Apply Paragraph Styles (Complex) ---
                     // $paragraphStyle = $paragraph->getParagraphStyle();
                     // Applying paragraph styles (like headings, alignment) correctly requires
@@ -188,18 +202,317 @@ class ProcessCopyJob implements ShouldQueue
                         // Add other element types here (HorizontalRule, PageBreak etc.) if needed
                     }
 
-                    // Ensure a newline character is inserted after processing a paragraph's content,
-                    // unless the paragraph was completely empty or only contained whitespace.
-                    // Google Docs uses '\n' to signify paragraph breaks.
-                    if (!$paragraphIsEmpty || count($paragraphElements) == 0) { // Add newline for empty paragraphs too
-                         Log::debug("Job #{$this->copyJob->id}: Inserting paragraph break (newline) at index {$currentInsertIndex}");
-                         $requests[] = new Request([
-                             'insertText' => new InsertTextRequest([
-                                 'location' => new Location(['index' => $currentInsertIndex]),
-                                 'text' => "\n"
-                             ])
-                         ]);
-                         $currentInsertIndex += 1; // Increment index for the newline
+                    // Cải tiến đoạn xử lý empty paragraphs (đoạn trống) ở dòng 125-130
+                    // --- Xử lý đặc biệt cho đoạn trống ---
+                    // Đoạn trống thường được sử dụng để tạo khoảng cách trong tài liệu
+                    if (count($paragraphElements) == 0 || $paragraphIsEmpty) {
+                        // Lưu vị trí bắt đầu của đoạn trống
+                        $emptyParagraphStart = $currentInsertIndex;
+                        
+                        // Chèn một ký tự xuống dòng (cần thiết để áp dụng style cho đoạn trống)
+                        $requests[] = new Request([
+                            'insertText' => new InsertTextRequest([
+                                'location' => new Location(['index' => $currentInsertIndex]),
+                                'text' => "\n"
+                            ])
+                        ]);
+                        $currentInsertIndex += 1; // Tăng index sau khi chèn xuống dòng
+                        
+                        // Áp dụng định dạng khoảng cách cho đoạn trống nếu có
+                        if ($paragraphStyle && ($paragraphStyle->getSpaceAbove() !== null || $paragraphStyle->getSpaceBelow() !== null)) {
+                            $emptySpacingObj = new ParagraphStyle();
+                            $emptySpacingFields = [];
+                            
+                            if ($paragraphStyle->getSpaceAbove() !== null) {
+                                $emptySpacingObj->setSpaceAbove($paragraphStyle->getSpaceAbove());
+                                $emptySpacingFields[] = 'spaceAbove';
+                            }
+                            
+                            if ($paragraphStyle->getSpaceBelow() !== null) {
+                                $emptySpacingObj->setSpaceBelow($paragraphStyle->getSpaceBelow());
+                                $emptySpacingFields[] = 'spaceBelow';
+                            }
+                            
+                            if (!empty($emptySpacingFields)) {
+                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách cho đoạn trống");
+                                $requests[] = new Request([
+                                    'updateParagraphStyle' => new UpdateParagraphStyleRequest([
+                                        'range' => new Range([
+                                            'startIndex' => $emptyParagraphStart,
+                                            'endIndex' => $currentInsertIndex
+                                        ]),
+                                        'paragraphStyle' => $emptySpacingObj,
+                                        'fields' => implode(',', $emptySpacingFields)
+                                    ])
+                                ]);
+                            }
+                        }
+                    }
+
+                    // Thay thế phần chèn ngắt đoạn (khoảng dòng 162-173) với đoạn code sau:
+                    // Đầu tiên, kiểm tra xem đoạn trước có phải là đoạn trống không
+                    $isEmptyParagraph = count($paragraphElements) == 0 || $paragraphIsEmpty;
+
+                    // Chèn ngắt đoạn (xuống dòng) chỉ khi cần thiết
+                    if (!$isEmptyParagraph || $paragraphStyleChanged) { // Luôn thêm xuống dòng cho heading và đoạn có nội dung
+                        Log::debug("Job #{$this->copyJob->id}: Chèn ngắt đoạn (xuống dòng) tại vị trí {$currentInsertIndex}");
+                        $requests[] = new Request([
+                            'insertText' => new InsertTextRequest([
+                                'location' => new Location(['index' => $currentInsertIndex]),
+                                'text' => "\n"
+                            ])
+                        ]);
+                        $currentInsertIndex += 1; // Tăng vị trí chèn sau khi thêm xuống dòng
+                    }
+
+                    // --- Áp dụng paragraph style (đặc biệt là heading) nếu có ---
+                    if ($paragraphStyleChanged && $paragraphStartIndex < $currentInsertIndex) {
+                        Log::debug("Job #{$this->copyJob->id}: Áp dụng kiểu định dạng {$namedStyleType} cho đoạn từ [{$paragraphStartIndex} đến {$currentInsertIndex}]");
+                        
+                        // Tạo request để áp dụng named style (như HEADING_1, HEADING_2, v.v.)
+                        $requests[] = new Request([
+                            'updateParagraphStyle' => new UpdateParagraphStyleRequest([
+                                'range' => new Range([
+                                    'startIndex' => $paragraphStartIndex,
+                                    'endIndex' => $currentInsertIndex
+                                ]),
+                                'paragraphStyle' => new ParagraphStyle([
+                                    'namedStyleType' => $namedStyleType
+                                ]),
+                                'fields' => 'namedStyleType'
+                            ])
+                        ]);
+                        
+                        // Nếu có thêm các thuộc tính paragraph style khác cần áp dụng
+                        if ($paragraphStyle->getAlignment() !== null || 
+                            $paragraphStyle->getIndentFirstLine() !== null ||
+                            $paragraphStyle->getIndentStart() !== null) {
+                            
+                            $fields = [];
+                            $styleObj = new ParagraphStyle();
+                            
+                            if ($paragraphStyle->getAlignment() !== null) {
+                                $styleObj->setAlignment($paragraphStyle->getAlignment());
+                                $fields[] = 'alignment';
+                            }
+                            
+                            if ($paragraphStyle->getIndentFirstLine() !== null) {
+                                $styleObj->setIndentFirstLine($paragraphStyle->getIndentFirstLine());
+                                $fields[] = 'indentFirstLine';
+                            }
+                            
+                            if ($paragraphStyle->getIndentStart() !== null) {
+                                $styleObj->setIndentStart($paragraphStyle->getIndentStart());
+                                $fields[] = 'indentStart';
+                            }
+                            
+                            if (!empty($fields)) {
+                                Log::debug("Job #{$this->copyJob->id}: Áp dụng style bổ sung cho đoạn: " . implode(',', $fields));
+                                $requests[] = new Request([
+                                    'updateParagraphStyle' => new UpdateParagraphStyleRequest([
+                                        'range' => new Range([
+                                            'startIndex' => $paragraphStartIndex,
+                                            'endIndex' => $currentInsertIndex
+                                        ]),
+                                        'paragraphStyle' => $styleObj,
+                                        'fields' => implode(',', $fields)
+                                    ])
+                                ]);
+                            }
+                        }
+                    }
+
+                    // Sửa đổi phần xử lý các thuộc tính khoảng cách (dòng 209-224) và đảm bảo nó được ưu tiên
+                    // Cho phần khoảng cách đoạn lên đầu tiên sau khi áp dụng namedStyleType
+                    if ($paragraphStyleChanged && $paragraphStartIndex < $currentInsertIndex) {
+                        // ... giữ nguyên phần áp dụng named style (HEADING_1, HEADING_2,...)
+                        
+                        // Ưu tiên xử lý khoảng cách trên/dưới ngay sau khi áp dụng named style
+                        if ($paragraphStyle->getSpaceAbove() !== null || 
+                            $paragraphStyle->getSpaceBelow() !== null || 
+                            $paragraphStyle->getLineSpacing() !== null) {
+                            
+                            $spacingFields = [];
+                            $spacingObj = new ParagraphStyle();
+                            
+                            if ($paragraphStyle->getSpaceAbove() !== null) {
+                                $spacingObj->setSpaceAbove($paragraphStyle->getSpaceAbove());
+                                $spacingFields[] = 'spaceAbove';
+                                
+                                // Log chi tiết để debug
+                                $magnitude = $paragraphStyle->getSpaceAbove()->getMagnitude();
+                                $unit = $paragraphStyle->getSpaceAbove()->getUnit();
+                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách trên: {$magnitude} {$unit}");
+                            }
+                            
+                            if ($paragraphStyle->getSpaceBelow() !== null) {
+                                $spacingObj->setSpaceBelow($paragraphStyle->getSpaceBelow());
+                                $spacingFields[] = 'spaceBelow';
+                                
+                                // Log chi tiết để debug
+                                $magnitude = $paragraphStyle->getSpaceBelow()->getMagnitude();
+                                $unit = $paragraphStyle->getSpaceBelow()->getUnit();
+                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách dưới: {$magnitude} {$unit}");
+                            }
+                            
+                            if ($paragraphStyle->getLineSpacing() !== null) {
+                                $spacingObj->setLineSpacing($paragraphStyle->getLineSpacing());
+                                $spacingFields[] = 'lineSpacing';
+                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách dòng: {$paragraphStyle->getLineSpacing()}");
+                            }
+                            
+                            if (!empty($spacingFields)) {
+                                Log::debug("Job #{$this->copyJob->id}: Áp dụng khoảng cách cho đoạn: " . implode(',', $spacingFields));
+                                $requests[] = new Request([
+                                    'updateParagraphStyle' => new UpdateParagraphStyleRequest([
+                                        'range' => new Range([
+                                            'startIndex' => $paragraphStartIndex,
+                                            'endIndex' => $currentInsertIndex
+                                        ]),
+                                        'paragraphStyle' => $spacingObj,
+                                        'fields' => implode(',', $spacingFields)
+                                    ])
+                                ]);
+                            }
+                        }
+                        
+                        // Các phần áp dụng thuộc tính khác của paragraph style giữ nguyên...
+                    }
+
+                    // Thêm vào sau dòng 197 (sau phần kiểm tra các thuộc tính paragraph)
+                    // Kiểm tra và áp dụng các thuộc tính khác như khoảng cách dòng, khoảng cách đoạn
+                    if ($paragraphStyle->getSpaceAbove() !== null || 
+                        $paragraphStyle->getSpaceBelow() !== null || 
+                        $paragraphStyle->getLineSpacing() !== null ||
+                        $paragraphStyle->getDirection() !== null) {
+                        
+                        $additionalFields = [];
+                        $additionalStyleObj = new ParagraphStyle();
+                        
+                        if ($paragraphStyle->getSpaceAbove() !== null) {
+                            $additionalStyleObj->setSpaceAbove($paragraphStyle->getSpaceAbove());
+                            $additionalFields[] = 'spaceAbove';
+                        }
+                        
+                        if ($paragraphStyle->getSpaceBelow() !== null) {
+                            $additionalStyleObj->setSpaceBelow($paragraphStyle->getSpaceBelow());
+                            $additionalFields[] = 'spaceBelow';
+                        }
+                        
+                        if ($paragraphStyle->getLineSpacing() !== null) {
+                            $additionalStyleObj->setLineSpacing($paragraphStyle->getLineSpacing());
+                            $additionalFields[] = 'lineSpacing';
+                        }
+                        
+                        if ($paragraphStyle->getDirection() !== null) {
+                            $additionalStyleObj->setDirection($paragraphStyle->getDirection());
+                            $additionalFields[] = 'direction';
+                        }
+                        
+                        if (!empty($additionalFields)) {
+                            Log::debug("Job #{$this->copyJob->id}: Áp dụng định dạng đoạn bổ sung: " . implode(',', $additionalFields));
+                            $requests[] = new Request([
+                                'updateParagraphStyle' => new UpdateParagraphStyleRequest([
+                                    'range' => new Range([
+                                        'startIndex' => $paragraphStartIndex,
+                                        'endIndex' => $currentInsertIndex
+                                    ]),
+                                    'paragraphStyle' => $additionalStyleObj,
+                                    'fields' => implode(',', $additionalFields)
+                                ])
+                            ]);
+                        }
+                    }
+
+                    // --- Lấy và áp dụng text style cho toàn bộ heading ---
+                    if ($paragraphStyleChanged && $paragraphStartIndex < $currentInsertIndex) {
+                        // Lấy style từ heading nguồn - ưu tiên style chung cho toàn bộ paragraph trước
+                        $headingTextStyle = new TextStyle();
+                        $styleFields = [];
+                        
+                        // 1. Kiểm tra nếu paragraph có style chung
+                        if ($paragraph->getParagraphStyle() && $paragraph->getParagraphStyle()->getHeadingId()) {
+                            // Thêm xử lý đặc biệt cho heading dựa trên headingId nếu cần
+                        }
+                        
+                        // 2. Ưu tiên lấy style từ text run đầu tiên vì đó thường là style chính của heading
+                        if (!empty($paragraphElements)) {
+                            foreach ($paragraphElements as $element) {
+                                if (isset($element->textRun) && $element->textRun->getTextStyle()) {
+                                    $sourceStyle = $element->textRun->getTextStyle();
+                                    
+                                    // Sao chép các thuộc tính định dạng quan trọng
+                                    if ($sourceStyle->getBold() !== null) {
+                                        $headingTextStyle->setBold($sourceStyle->getBold());
+                                        $styleFields[] = 'bold';
+                                    }
+                                    
+                                    if ($sourceStyle->getItalic() !== null) {
+                                        $headingTextStyle->setItalic($sourceStyle->getItalic());
+                                        $styleFields[] = 'italic';
+                                    }
+                                    
+                                    if ($sourceStyle->getUnderline() !== null) {
+                                        $headingTextStyle->setUnderline($sourceStyle->getUnderline());
+                                        $styleFields[] = 'underline';
+                                    }
+                                    
+                                    if ($sourceStyle->getFontSize() !== null) {
+                                        $headingTextStyle->setFontSize($sourceStyle->getFontSize());
+                                        $styleFields[] = 'fontSize';
+                                    }
+                                    
+                                    if ($sourceStyle->getWeightedFontFamily() !== null) {
+                                        $headingTextStyle->setWeightedFontFamily($sourceStyle->getWeightedFontFamily());
+                                        $styleFields[] = 'weightedFontFamily';
+                                    }
+                                    
+                                    if ($sourceStyle->getForegroundColor() !== null) {
+                                        $headingTextStyle->setForegroundColor($sourceStyle->getForegroundColor());
+                                        $styleFields[] = 'foregroundColor';
+                                    }
+                                    
+                                    // Lấy được style từ text run đầu tiên là đủ
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Thêm ngay sau khi lấy được style từ text run đầu tiên (trong vòng lặp foreach $paragraphElements)
+                        if ($namedStyleType && $namedStyleType !== 'NORMAL_TEXT') {
+                            // Khi tìm thấy text run đầu tiên trong heading, debug chi tiết
+                            Log::debug("Job #{$this->copyJob->id}: Đã tìm thấy text run cho heading {$namedStyleType}");
+                            $this->debugTextStyle($sourceStyle, "heading {$namedStyleType}");
+                        }
+                        
+                        // 3. Áp dụng text style nếu có các thuộc tính cần thiết
+                        if (!empty($styleFields)) {
+                            $styleFieldsStr = implode(',', array_unique($styleFields));
+                            Log::debug("Job #{$this->copyJob->id}: Áp dụng định dạng văn bản rõ ràng cho heading: {$styleFieldsStr}");
+                            
+                            $requests[] = new Request([
+                                'updateTextStyle' => new UpdateTextStyleRequest([
+                                    'range' => new Range([
+                                        'startIndex' => $paragraphStartIndex,
+                                        'endIndex' => $currentInsertIndex - 1  // -1 để không bao gồm ký tự xuống dòng
+                                    ]),
+                                    'textStyle' => $headingTextStyle,
+                                    'fields' => $styleFieldsStr
+                                ])
+                            ]);
+                            
+                            // 4. Ghi log chi tiết để debug
+                            if ($headingTextStyle->getBold() !== null) {
+                                Log::debug("Job #{$this->copyJob->id}: Heading sẽ được áp dụng Bold = " . 
+                                          ($headingTextStyle->getBold() ? "true" : "false"));
+                            }
+                            
+                            if ($headingTextStyle->getFontSize() !== null) {
+                                $fontSize = $headingTextStyle->getFontSize()->getMagnitude() . 
+                                           $headingTextStyle->getFontSize()->getUnit();
+                                Log::debug("Job #{$this->copyJob->id}: Heading sẽ được áp dụng font size = {$fontSize}");
+                            }
+                        }
                     }
 
                 }
@@ -348,18 +661,35 @@ class ProcessCopyJob implements ShouldQueue
     }
 
     /**
-     * Checks if a TextStyle object contains actual formatting.
+     * Kiểm tra xem TextStyle có chứa định dạng thực sự không.
      * @param TextStyle $style
      * @return bool
      */
     private function hasFormatting(TextStyle $style): bool
     {
-        // Check common formatting properties
-        return $style->getBold() || $style->getItalic() || $style->getUnderline() ||
-               $style->getStrikethrough() || $style->getSmallCaps() ||
-               $style->getForegroundColor() || $style->getBackgroundColor() ||
-               $style->getFontSize() || $style->getWeightedFontFamily();
-        // Add checks for other properties like baselineOffset, link if needed
+        // Kiểm tra đặc biệt cho font size vì đây là object phức tạp
+        $hasFontSize = false;
+        if ($style->getFontSize() !== null) {
+            $fontSize = $style->getFontSize();
+            // Chỉ coi là có font size nếu có magnitude (kích thước) thực sự
+            if ($fontSize->getMagnitude() !== null && $fontSize->getMagnitude() > 0) {
+                $hasFontSize = true;
+            }
+        }
+        
+        // Kiểm tra các thuộc tính định dạng phổ biến - cẩn thận hơn với các giá trị boolean
+        return 
+            // Bold, italic, underline có thể là true/false nhưng vẫn là định dạng
+            $style->getBold() === true || 
+            $style->getItalic() === true || 
+            $style->getUnderline() === true ||
+            $style->getStrikethrough() === true || 
+            $style->getSmallCaps() === true ||
+            $hasFontSize || 
+            $style->getWeightedFontFamily() !== null ||
+            $style->getForegroundColor() !== null || 
+            $style->getBackgroundColor() !== null ||
+            $style->getBaselineOffset() !== null;
     }
 
     /**
@@ -404,4 +734,37 @@ class ProcessCopyJob implements ShouldQueue
          return $defaultDelay;
      }
 
+    /**
+     * Phân tích và ghi log chi tiết về text style để debug
+     * @param TextStyle $style
+     * @param string $elementDesc Mô tả phần tử đang xử lý
+     */
+    private function debugTextStyle(TextStyle $style, string $elementDesc): void
+    {
+        Log::debug("Phân tích style cho {$elementDesc}:");
+        
+        if ($style->getBold() !== null) {
+            Log::debug("- Bold: " . ($style->getBold() ? "true" : "false"));
+        }
+        
+        if ($style->getItalic() !== null) {
+            Log::debug("- Italic: " . ($style->getItalic() ? "true" : "false"));
+        }
+        
+        if ($style->getUnderline() !== null) {
+            Log::debug("- Underline: " . ($style->getUnderline() ? "true" : "false"));
+        }
+        
+        if ($style->getFontSize() !== null) {
+            $fontSize = $style->getFontSize()->getMagnitude() . 
+                       ($style->getFontSize()->getUnit() ?? 'PT');
+            Log::debug("- FontSize: {$fontSize}");
+        }
+        
+        if ($style->getWeightedFontFamily() !== null) {
+            $fontFamily = $style->getWeightedFontFamily()->getFontFamily();
+            $weight = $style->getWeightedFontFamily()->getWeight();
+            Log::debug("- Font: {$fontFamily}, Weight: {$weight}");
+        }
+    }
 }
