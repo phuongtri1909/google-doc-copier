@@ -27,6 +27,7 @@ Route::get('/jobs/create', [CopyJobController::class, 'create'])->name('jobs.cre
 Route::post('/jobs', [CopyJobController::class, 'store'])->name('jobs.store');
 Route::post('/jobs/{job}/process', [CopyJobController::class, 'processJob'])->name('jobs.process');
 Route::get('/jobs/progress', [CopyJobController::class, 'getProgress'])->name('jobs.progress');
+Route::delete('/jobs/{job}', [CopyJobController::class, 'destroy'])->name('jobs.destroy');
 
 // Folder Picker routes
 Route::get('/folders/picker', [FolderPickerController::class, 'showPicker'])->name('folders.picker');

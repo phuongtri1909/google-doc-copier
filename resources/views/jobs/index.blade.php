@@ -163,6 +163,39 @@
             margin-bottom: 1rem;
         }
     }
+
+    .pagination {
+        display: flex;
+        padding-left: 0;
+        list-style: none;
+        border-radius: 0.25rem;
+    }
+
+    .page-link {
+        position: relative;
+        display: block;
+        padding: 0.5rem 0.75rem;
+        margin-left: -1px;
+        line-height: 1.25;
+        color: #007bff;
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+    }
+
+    .page-item.active .page-link {
+        z-index: 3;
+        color: #fff;
+        background-color: #007bff;
+        border-color: #007bff;
+    }
+
+    .page-item.disabled .page-link {
+        color: #6c757d;
+        pointer-events: none;
+        cursor: auto;
+        background-color: #fff;
+        border-color: #dee2e6;
+    }
 </style>
 @endpush
 
@@ -176,6 +209,40 @@
         <a href="{{ route('jobs.create') }}" class="btn btn-primary">
             <i class="fas fa-plus-circle me-1"></i> Tạo Công Việc Mới
         </a>
+    </div>
+</div>
+
+<!-- Thêm form filter vào phía trên danh sách jobs -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form action="{{ route('jobs.index') }}" method="GET" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Từ ngày</label>
+                <input type="date" name="date_from" class="form-control" value="{{ request('date_from') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Đến ngày</label>
+                <input type="date" name="date_to" class="form-control" value="{{ request('date_to') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Trạng thái</label>
+                <select name="status" class="form-control">
+                    <option value="all">Tất cả</option>
+                    <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Đang chờ</option>
+                    <option value="processing" {{ request('status') == 'processing' ? 'selected' : '' }}>Đang xử lý</option>
+                    <option value="completed" {{ request('status') == 'completed' ? 'selected' : '' }}>Hoàn thành</option>
+                    <option value="failed" {{ request('status') == 'failed' ? 'selected' : '' }}>Thất bại</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2">
+                    <i class="fas fa-filter"></i> Lọc
+                </button>
+                <a href="{{ route('jobs.index') }}" class="btn btn-secondary">
+                    <i class="fas fa-undo"></i> Đặt lại
+                </a>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -282,23 +349,35 @@
                         </div>
                     </div>
                     <div class="job-footer">
-                        <div class="d-flex justify-content-end gap-2" id="job-actions-{{ $job->id }}">
-                            @if ($job->destination_doc_id)
-                                <a href="https://docs.google.com/document/d/{{ $job->destination_doc_id }}/edit" 
-                                   target="_blank" class="btn btn-sm btn-outline-primary action-btn"
-                                   id="view-doc-btn-{{ $job->id }}">
-                                    <i class="fas fa-external-link-alt me-1"></i> Xem
-                                </a>
-                            @endif
+                        <div class="d-flex justify-content-between align-items-center">
+                            <form action="{{ route('jobs.destroy', $job->id) }}" 
+                                  method="POST" 
+                                  onsubmit="return confirm('Bạn có chắc chắn muốn xóa công việc này?');">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="btn btn-sm btn-danger action-btn" >
+                                    <i class="fas fa-trash-alt me-1"></i> Xóa
+                                </button>
+                            </form>
                             
-                            @if ($job->status != 'completed' && $job->status != 'failed')
-                                <form action="{{ route('jobs.process', $job->id) }}" method="POST" class="d-inline">
-                                    @csrf
-                                    <button type="submit" class="btn btn-sm btn-primary action-btn">
-                                        <i class="fas fa-play me-1"></i> Xử Lý Ngay
-                                    </button>
-                                </form>
-                            @endif
+                            <div class="d-flex gap-2" id="job-actions-{{ $job->id }}">
+                                @if ($job->destination_doc_id)
+                                    <a href="https://docs.google.com/document/d/{{ $job->destination_doc_id }}/edit" 
+                                       target="_blank" class="btn btn-sm btn-outline-primary action-btn"
+                                       id="view-doc-btn-{{ $job->id }}">
+                                        <i class="fas fa-external-link-alt me-1"></i> Xem
+                                    </a>
+                                @endif
+                                
+                                @if ($job->status != 'completed' && $job->status != 'failed')
+                                    <form action="{{ route('jobs.process', $job->id) }}" method="POST" class="d-inline">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-primary action-btn">
+                                            <i class="fas fa-play me-1"></i> Xử Lý Ngay
+                                        </button>
+                                    </form>
+                                @endif
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -325,6 +404,13 @@
             <i class="fas fa-plus-circle me-1"></i> Tạo Công Việc Đầu Tiên
         </a>
     </div>
+@endif
+
+<!-- Sau danh sách jobs, thêm phân trang -->
+@if ($jobs->hasPages())
+<div class="d-flex justify-content-center mt-4">
+     {{ $jobs->appends(request()->query())->links('components.paginate') }}
+</div>
 @endif
 @endsection
 

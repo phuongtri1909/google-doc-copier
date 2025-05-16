@@ -67,14 +67,29 @@ class CopyJobController extends Controller
         return $client;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         if (!Auth::check()) {
             return redirect()->route('auth.google');
         }
 
         $user = Auth::user();
-        $jobs = CopyJob::where('email', $user->email)->orderBy('created_at', 'desc')->get();
+        $query = CopyJob::where('email', $user->email);
+
+        // Filter by date
+        if ($request->has('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->has('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        // Filter by status
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        $jobs = $query->orderBy('created_at', 'desc')->paginate(10);
         $hasLicense = $user->hasValidLicense();
 
         return view('jobs.index', compact('jobs', 'hasLicense'));
@@ -296,5 +311,20 @@ class CopyJobController extends Controller
         }
 
         return response()->json(['jobs' => $jobsArray]);
+    }
+
+    public function destroy(CopyJob $job)
+    {
+        if (Auth::user()->email !== $job->email && !Auth::user()->isAdmin()) {
+            return redirect()->route('jobs.index')
+                ->with('error', 'Bạn không có quyền xóa công việc này.');
+        }
+
+
+        $job->delete();
+        
+
+        return redirect()->route('jobs.index')
+            ->with('success', "Công việc #{$job->id} đã được xóa thành công.");
     }
 }

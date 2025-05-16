@@ -2,32 +2,32 @@
 
 namespace App\Jobs;
 
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
+use Throwable;
 use App\Models\CopyJob;
-use Google\Client as GoogleClient;
 use Google\Service\Docs;
 use Google\Service\Drive;
-use Google\Service\Docs\BatchUpdateDocumentRequest;
-use Google\Service\Docs\InsertTextRequest;
-use Google\Service\Docs\Location;
-use Google\Service\Docs\Request;
+use Illuminate\Bus\Queueable;
 use Google\Service\Docs\Range;
-use Google\Service\Docs\UpdateTextStyleRequest;
+use Google\Service\Docs\Request;
+use Google\Service\Docs\Location;
+use Google\Client as GoogleClient;
 use Google\Service\Docs\TextStyle;
-use Google\Service\Docs\UpdateParagraphStyleRequest;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Queue\SerializesModels;
 use Google\Service\Docs\ParagraphStyle;
-use Throwable;
+use Illuminate\Queue\InteractsWithQueue;
+use Google\Service\Docs\InsertTextRequest;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Google\Service\Docs\UpdateTextStyleRequest;
+use Google\Service\Docs\BatchUpdateDocumentRequest;
+use Google\Service\Docs\UpdateParagraphStyleRequest;
 
 class ProcessCopyJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     protected $copyJob;
-    const ELEMENTS_PER_BATCH = 5;
     public $tries = 3;
     public $backoff = [60, 120];
 
@@ -37,6 +37,8 @@ class ProcessCopyJob implements ShouldQueue
         if ($this->copyJob->total_sentences === null) {
             $this->copyJob->total_sentences = -1;
         }
+
+        $this->backoff = $this->copyJob->interval_seconds > 0 ? [$this->copyJob->interval_seconds, $this->copyJob->interval_seconds * 2] : $this->backoff;
     }
 
     public function handle()
@@ -49,7 +51,7 @@ class ProcessCopyJob implements ShouldQueue
             $sourceDoc = $docsService->documents->get($this->copyJob->source_doc_id);
             $sourceStructuralElements = $sourceDoc->getBody()->getContent();
             $totalElements = count($sourceStructuralElements);
-            
+
             // Save the source document title if not already stored
             if (empty($this->copyJob->source_title)) {
                 $this->copyJob->source_title = $sourceDoc->getTitle();
@@ -59,36 +61,49 @@ class ProcessCopyJob implements ShouldQueue
             // If this is the first time running the job, set up the folder structure
             if ($this->copyJob->current_position === 0) {
                 $sourceDocTitle = $sourceDoc->getTitle();
-                
-                // Create a new folder with the same name as the source document
-                $folderMetadata = new \Google\Service\Drive\DriveFile([
-                    'name' => $sourceDocTitle,
-                    'mimeType' => 'application/vnd.google-apps.folder',
-                    'parents' => [$this->copyJob->folder_id] // Set the parent folder
+                $parentFolderId = $this->copyJob->folder_id;
+                $newFolderId = null;
+
+                // Tìm folder có tên trùng trong parent folder
+                $existingFolders = $driveService->files->listFiles([
+                    'q' => "mimeType='application/vnd.google-apps.folder' and name='" . $sourceDocTitle . "' and '" . $parentFolderId . "' in parents and trashed=false",
+                    'spaces' => 'drive',
+                    'fields' => 'files(id, name)'
                 ]);
-                
-                // Create the folder
-                $newFolder = $driveService->files->create($folderMetadata, [
-                    'fields' => 'id'
-                ]);
-                
-                // Get the new folder ID
-                $newFolderId = $newFolder->getId();
-                
-                // Move the destination document to the new folder
+
+                if (count($existingFolders->getFiles()) > 0) {
+                    // Sử dụng folder đã tồn tại
+                    $newFolderId = $existingFolders->getFiles()[0]->getId();
+                } else {
+                    // Tạo folder mới nếu chưa tồn tại
+                    $folderMetadata = new \Google\Service\Drive\DriveFile([
+                        'name' => $sourceDocTitle,
+                        'mimeType' => 'application/vnd.google-apps.folder',
+                        'parents' => [$parentFolderId]
+                    ]);
+
+                    $newFolder = $driveService->files->create($folderMetadata, [
+                        'fields' => 'id'
+                    ]);
+                    $newFolderId = $newFolder->getId();
+                }
+
+                // Di chuyển destination document vào folder
                 $fileMetadata = new \Google\Service\Drive\DriveFile();
                 $driveService->files->update(
                     $this->copyJob->destination_doc_id,
                     $fileMetadata,
-                    ['removeParents' => $this->copyJob->folder_id, 
-                     'addParents' => $newFolderId, 
-                     'fields' => 'id, parents']
+                    [
+                        'removeParents' => $parentFolderId,
+                        'addParents' => $newFolderId,
+                        'fields' => 'id, parents'
+                    ]
                 );
-                
-                // Update the CopyJob with the new folder ID
+
+                // Cập nhật folder ID trong CopyJob
                 $this->copyJob->folder_id = $newFolderId;
                 $this->copyJob->save();
-                
+
                 // Get destination document title
                 $destDoc = $docsService->documents->get($this->copyJob->destination_doc_id);
                 $this->copyJob->destination_title = $destDoc->getTitle();
@@ -107,9 +122,12 @@ class ProcessCopyJob implements ShouldQueue
                 return;
             }
 
+            // Generate a random batch size between 1-3 for this execution
+            $elementsPerBatch = rand(1, 3);
+
             $startIndex = $this->copyJob->current_position;
-            $endIndex = min($startIndex + self::ELEMENTS_PER_BATCH, $totalElements);
-            $elementsToCopy = array_slice($sourceStructuralElements, $startIndex, self::ELEMENTS_PER_BATCH);
+            $endIndex = min($startIndex + $elementsPerBatch, $totalElements);
+            $elementsToCopy = array_slice($sourceStructuralElements, $startIndex, $elementsPerBatch);
 
             if (empty($elementsToCopy)) {
                 $this->copyJob->status = 'completed';
@@ -143,8 +161,7 @@ class ProcessCopyJob implements ShouldQueue
                     $namedStyleType = $paragraphStyle ? $paragraphStyle->getNamedStyleType() : null;
                     $paragraphStartIndex = $currentInsertIndex;
                     $isHeading = $namedStyleType && $namedStyleType !== 'NORMAL_TEXT';
-                    $paragraphTextStartIndex = $currentInsertIndex; // Track text start for bold formatting
-
+                    $isHeading = in_array($namedStyleType, ['HEADING_1', 'HEADING_2', 'HEADING_3', 'HEADING_4', 'HEADING_5', 'HEADING_6']);
                     $paragraphIsEmpty = true;
                     foreach ($paragraphElements as $element) {
                         if (isset($element->textRun)) {
@@ -156,7 +173,7 @@ class ProcessCopyJob implements ShouldQueue
                                 $textLength = mb_strlen($text);
 
                                 if ($textLength > 0) {
-                                    // Insert the text content
+                                    // Insert the text content without any line breaks
                                     $requests[] = new Request([
                                         'insertText' => new InsertTextRequest([
                                             'location' => new Location(['index' => $currentInsertIndex]),
@@ -170,8 +187,7 @@ class ProcessCopyJob implements ShouldQueue
                         }
                     }
 
-                    // Handle empty paragraphs
-                    if (count($paragraphElements) == 0 || $paragraphIsEmpty) {
+                    if (!$paragraphIsEmpty && $isHeading === true) {
                         $requests[] = new Request([
                             'insertText' => new InsertTextRequest([
                                 'location' => new Location(['index' => $currentInsertIndex]),
@@ -180,15 +196,6 @@ class ProcessCopyJob implements ShouldQueue
                         ]);
                         $currentInsertIndex += 1;
                     }
-
-                    // Insert line break for all paragraphs
-                    $requests[] = new Request([
-                        'insertText' => new InsertTextRequest([
-                            'location' => new Location(['index' => $currentInsertIndex]),
-                            'text' => "\n"
-                        ])
-                    ]);
-                    $currentInsertIndex += 1;
 
                     // Apply heading style if this is a heading
                     if ($isHeading && $paragraphStartIndex < $currentInsertIndex) {
@@ -205,10 +212,9 @@ class ProcessCopyJob implements ShouldQueue
                                 'fields' => 'namedStyleType'
                             ])
                         ]);
-                        
+
                         // 2. For all headings, explicitly make them bold
-                        // Note: The Range excludes the newline character
-                        $headingTextLength = $currentInsertIndex - $paragraphStartIndex - 1;
+                        $headingTextLength = $currentInsertIndex - $paragraphStartIndex - 1; // Exclude the newline
                         if ($headingTextLength > 0) {
                             $requests[] = new Request([
                                 'updateTextStyle' => new UpdateTextStyleRequest([
@@ -239,10 +245,10 @@ class ProcessCopyJob implements ShouldQueue
             $this->copyJob->save();
 
             if ($this->copyJob->status === 'processing') {
-                $delay = $this->copyJob->interval_seconds ?? 5;
+                // Use the exact interval time set during job creation
+                $delay = $this->copyJob->interval_seconds;
                 ProcessCopyJob::dispatch($this->copyJob)->delay(now()->addSeconds($delay));
             }
-
         } catch (Throwable $e) {
             $this->copyJob->status = 'failed';
             $this->copyJob->error_message = get_class($e) . ': ' . $e->getMessage();
