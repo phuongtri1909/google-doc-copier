@@ -206,6 +206,8 @@ class CopyJobController extends Controller
                         'current_position' => 0,
                         'status' => 'pending',
                         'interval_seconds' => $validated['interval_seconds'],
+                        'source_title' => $sourceTitle,
+                        'destination_title' => $sourceTitle, // Same title for destination doc
                     ]);
 
                     // Đưa công việc vào hàng đợi
@@ -286,7 +288,7 @@ class CopyJobController extends Controller
                     $query->whereNull('email');
                 }
             })
-            ->get(['id', 'status', 'current_position', 'total_sentences', 'destination_doc_id', 'interval_seconds']);
+            ->get(['id', 'status', 'current_position', 'total_sentences', 'destination_doc_id', 'interval_seconds', 'source_title', 'destination_title']);
 
         $jobsArray = [];
         foreach ($jobs as $job) {

@@ -49,6 +49,12 @@ class ProcessCopyJob implements ShouldQueue
             $sourceDoc = $docsService->documents->get($this->copyJob->source_doc_id);
             $sourceStructuralElements = $sourceDoc->getBody()->getContent();
             $totalElements = count($sourceStructuralElements);
+            
+            // Save the source document title if not already stored
+            if (empty($this->copyJob->source_title)) {
+                $this->copyJob->source_title = $sourceDoc->getTitle();
+                $this->copyJob->save();
+            }
 
             // If this is the first time running the job, set up the folder structure
             if ($this->copyJob->current_position === 0) {
@@ -81,6 +87,11 @@ class ProcessCopyJob implements ShouldQueue
                 
                 // Update the CopyJob with the new folder ID
                 $this->copyJob->folder_id = $newFolderId;
+                $this->copyJob->save();
+                
+                // Get destination document title
+                $destDoc = $docsService->documents->get($this->copyJob->destination_doc_id);
+                $this->copyJob->destination_title = $destDoc->getTitle();
                 $this->copyJob->save();
             }
 

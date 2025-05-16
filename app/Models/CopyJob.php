@@ -20,7 +20,9 @@ class CopyJob extends Model
         'current_position', 
         'status',
         'interval_seconds',
-        'error_message'
+        'error_message',
+        'source_title',
+        'destination_title'
     ];
     
     protected $casts = [

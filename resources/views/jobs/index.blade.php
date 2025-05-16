@@ -5,30 +5,31 @@
 @push('styles')
 <style>
     .status-badge {
-        padding: 0.5em 0.75em;
+        padding: 0.35em 0.65em;
         border-radius: 50px;
         font-weight: 500;
         display: inline-flex;
         align-items: center;
         gap: 5px;
+        font-size: 0.85rem;
     }
     
     .job-card {
         transition: all 0.3s ease;
-        border-radius: 12px;
+        border-radius: 8px;
         overflow: hidden;
-        margin-bottom: 1rem;
+        margin-bottom: 0.75rem;
         border: none;
-        box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
     
     .job-card:hover {
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        transform: translateY(-2px);
     }
     
     .job-header {
-        padding: 1rem;
+        padding: 0.75rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -36,21 +37,22 @@
     }
     
     .job-body {
-        padding: 1rem;
+        padding: 0.75rem;
     }
     
     .job-id {
         font-weight: bold;
         color: var(--primary);
+        font-size: 0.9rem;
     }
     
     .job-date {
-        font-size: 0.85rem;
+        font-size: 0.75rem;
         color: #888;
     }
     
     .job-footer {
-        padding: 1rem;
+        padding: 0.75rem;
         background-color: #f9f9f9;
         border-top: 1px solid #eee;
     }
@@ -61,24 +63,43 @@
         gap: 5px;
         color: var(--primary);
         text-decoration: none;
-        max-width: 200px;
+        max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        font-size: 0.85rem;
+    }
+    
+    .doc-title {
+        font-weight: 500;
+        margin-bottom: 3px;
+        font-size: 0.9rem;
+    }
+    
+    .doc-id {
+        color: #888;
+        font-size: 0.75rem;
     }
     
     .doc-link:hover {
         text-decoration: underline;
     }
     
+    .doc-container {
+        background-color: #f8f9fa;
+        border-radius: 6px;
+        padding: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+    
     .progress {
-        height: 10px;
-        border-radius: 10px;
+        height: 8px;
+        border-radius: 8px;
     }
     
     .action-btn {
-        padding: 0.35rem 0.75rem;
-        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
     }
     
     .empty-state {
@@ -100,10 +121,10 @@
         right: 20px;
         background: var(--primary);
         color: white;
-        padding: 10px 15px;
+        padding: 8px 12px;
         border-radius: 50px;
         box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
-        font-size: 0.9rem;
+        font-size: 0.8rem;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -124,8 +145,8 @@
         background: rgba(255, 255, 255, 0.2);
         border: none;
         border-radius: 50px;
-        width: 24px;
-        height: 24px;
+        width: 20px;
+        height: 20px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -139,7 +160,7 @@
     
     @media (max-width: 767px) {
         .job-card {
-            margin-bottom: 1.5rem;
+            margin-bottom: 1rem;
         }
     }
 </style>
@@ -208,21 +229,27 @@
                         </div>
                     </div>
                     <div class="job-body">
-                        <div class="mb-3">
-                            <p class="mb-1"><strong>Tài liệu nguồn:</strong></p>
+                        <div class="doc-container">
+                            <p class="mb-1 doc-title">
+                                <i class="fas fa-file-alt"></i> 
+                                {{ $job->source_title ?? 'Tài liệu nguồn' }}
+                            </p>
                             <a href="https://docs.google.com/document/d/{{ $job->source_doc_id }}/edit" 
                                target="_blank" class="doc-link">
-                                <i class="fas fa-file-alt"></i> {{ $job->source_doc_id }}
+                                <span class="doc-id">{{ $job->source_doc_id }}</span>
                             </a>
                         </div>
                         
-                        <div class="mb-3">
-                            <p class="mb-1"><strong>Tài liệu đích:</strong></p>
+                        <div class="doc-container">
+                            <p class="mb-1 doc-title">
+                                <i class="fas fa-file-alt"></i> 
+                                {{ $job->destination_title ?? 'Tài liệu đích' }}
+                            </p>
                             <span id="dest-doc-container-{{ $job->id }}">
                             @if ($job->destination_doc_id)
                                 <a href="https://docs.google.com/document/d/{{ $job->destination_doc_id }}/edit" 
                                    target="_blank" class="doc-link">
-                                    <i class="fas fa-file-alt"></i> {{ $job->destination_doc_id }}
+                                    <span class="doc-id">{{ $job->destination_doc_id }}</span>
                                 </a>
                             @else
                                 <span class="text-muted"><i class="fas fa-times-circle"></i> Chưa được tạo</span>
@@ -230,15 +257,15 @@
                             </span>
                         </div>
                         
-                        <div class="mb-2">
+                        <div class="mb-1">
                             <div class="d-flex justify-content-between align-items-center mb-1">
-                                <span><strong>Tiến độ:</strong></span>
+                                <span class="small"><strong>Tiến độ:</strong></span>
                                 @php
                                     $progress = $job->total_sentences > 0 
                                         ? round(($job->current_position / $job->total_sentences) * 100) 
                                         : 0;
                                 @endphp
-                                <span id="progress-percent-{{ $job->id }}">{{ $progress }}%</span>
+                                <span id="progress-percent-{{ $job->id }}" class="small">{{ $progress }}%</span>
                             </div>
                             <div class="progress">
                                 <div class="progress-bar progress-bar-striped {{ $job->status == 'processing' ? 'progress-bar-animated' : '' }}"
@@ -249,8 +276,8 @@
                                 </div>
                             </div>
                             <div class="d-flex justify-content-between mt-1">
-                                <small id="progress-count-{{ $job->id }}">{{ $job->current_position }} / {{ $job->total_sentences }}</small>
-                                <small>Khoảng thời gian: <span id="interval-seconds-{{ $job->id }}">{{ $job->interval_seconds }}</span>s</small>
+                                <small id="progress-count-{{ $job->id }}" style="font-size: 0.75rem;">{{ $job->current_position }} / {{ $job->total_sentences }}</small>
+                                <small style="font-size: 0.75rem;">Khoảng thời gian: <span id="interval-seconds-{{ $job->id }}">{{ $job->interval_seconds }}</span>s</small>
                             </div>
                         </div>
                     </div>
@@ -637,9 +664,17 @@
                                 if (!currentLink || currentLink.getAttribute('href') !== docUrl) {
                                     destDocContainer.innerHTML = `
                                         <a href="${docUrl}" target="_blank" class="doc-link">
-                                            <i class="fas fa-file-alt"></i> ${jobInfo.destination_doc_id}
+                                            <span class="doc-id">${jobInfo.destination_doc_id}</span>
                                         </a>
                                     `;
+                                }
+                            }
+                            
+                            // Update document title if available
+                            if (jobInfo.destination_title) {
+                                const docTitleElem = destDocContainer.closest('.doc-container').querySelector('.doc-title');
+                                if (docTitleElem) {
+                                    docTitleElem.innerHTML = `<i class="fas fa-file-alt"></i> ${jobInfo.destination_title}`;
                                 }
                             }
                             
@@ -661,6 +696,14 @@
                                 } else {
                                     jobActions.appendChild(viewBtn);
                                 }
+                            }
+                        }
+                        
+                        // Update source document title if available
+                        if (jobInfo.source_title) {
+                            const sourceTitleElem = document.querySelector(`#job-card-${jobId} .doc-container:first-child .doc-title`);
+                            if (sourceTitleElem) {
+                                sourceTitleElem.innerHTML = `<i class="fas fa-file-alt"></i> ${jobInfo.source_title}`;
                             }
                         }
                         
