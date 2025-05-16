@@ -10,6 +10,7 @@ use Illuminate\Queue\SerializesModels;
 use App\Models\CopyJob;
 use Google\Client as GoogleClient;
 use Google\Service\Docs;
+use Google\Service\Drive;
 use Google\Service\Docs\BatchUpdateDocumentRequest;
 use Google\Service\Docs\InsertTextRequest;
 use Google\Service\Docs\Location;
@@ -43,10 +44,45 @@ class ProcessCopyJob implements ShouldQueue
         try {
             $client = $this->setupGoogleClient();
             $docsService = new Docs($client);
+            $driveService = new Drive($client); // Add Drive service for folder operations
 
             $sourceDoc = $docsService->documents->get($this->copyJob->source_doc_id);
             $sourceStructuralElements = $sourceDoc->getBody()->getContent();
             $totalElements = count($sourceStructuralElements);
+
+            // If this is the first time running the job, set up the folder structure
+            if ($this->copyJob->current_position === 0) {
+                $sourceDocTitle = $sourceDoc->getTitle();
+                
+                // Create a new folder with the same name as the source document
+                $folderMetadata = new \Google\Service\Drive\DriveFile([
+                    'name' => $sourceDocTitle,
+                    'mimeType' => 'application/vnd.google-apps.folder',
+                    'parents' => [$this->copyJob->folder_id] // Set the parent folder
+                ]);
+                
+                // Create the folder
+                $newFolder = $driveService->files->create($folderMetadata, [
+                    'fields' => 'id'
+                ]);
+                
+                // Get the new folder ID
+                $newFolderId = $newFolder->getId();
+                
+                // Move the destination document to the new folder
+                $fileMetadata = new \Google\Service\Drive\DriveFile();
+                $driveService->files->update(
+                    $this->copyJob->destination_doc_id,
+                    $fileMetadata,
+                    ['removeParents' => $this->copyJob->folder_id, 
+                     'addParents' => $newFolderId, 
+                     'fields' => 'id, parents']
+                );
+                
+                // Update the CopyJob with the new folder ID
+                $this->copyJob->folder_id = $newFolderId;
+                $this->copyJob->save();
+            }
 
             if ($this->copyJob->total_sentences !== $totalElements) {
                 $this->copyJob->total_sentences = $totalElements;
@@ -228,7 +264,9 @@ class ProcessCopyJob implements ShouldQueue
         $client->setClientSecret(env('GOOGLE_CLIENT_SECRET'));
         $client->addScope([
             'https://www.googleapis.com/auth/documents',
-            'https://www.googleapis.com/auth/drive.readonly'
+            'https://www.googleapis.com/auth/drive.readonly',
+            'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/drive'
         ]);
         $client->setAccessType('offline');
 
