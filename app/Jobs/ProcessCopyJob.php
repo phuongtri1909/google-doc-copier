@@ -185,6 +185,20 @@ class ProcessCopyJob implements ShouldQueue
                         $currentInsertIndex += 1;
                     }
 
+                    $requests[] = new Request([
+                        'updateParagraphStyle' => new UpdateParagraphStyleRequest([
+                            'range' => new Range([
+                                'startIndex' => $paragraphStartIndex,
+                                'endIndex' => $currentInsertIndex
+                            ]),
+                            'paragraphStyle' => new ParagraphStyle([
+                                'alignment' => 'JUSTIFIED', // Căn đều 2 bên
+                                'lineSpacing' => 150,      // Line spacing 1.5
+                            ]),
+                            'fields' => 'alignment,lineSpacing'
+                        ])
+                    ]);
+
                     // Apply heading style if this is a heading
                     if ($isHeading && $paragraphStartIndex < $currentInsertIndex) {
                         // 1. First apply the named style type (HEADING_1, HEADING_2, etc.)

@@ -164,6 +164,19 @@ class CopyJobController extends Controller
             $sourceDocIds = array_map('trim', $sourceDocIds);
             $sourceDocIds = array_filter($sourceDocIds); // Loại bỏ chuỗi rỗng
 
+            // Hàm để trích xuất ID từ URL hoặc trả về ID nguyên gốc
+            $extractDocId = function($input) {
+                // Kiểm tra nếu là URL Google Docs
+                if (preg_match('/\/document\/d\/([a-zA-Z0-9_-]+)/', $input, $matches)) {
+                    return $matches[1];
+                }
+                // Nếu không phải URL, trả về nguyên gốc (có thể là ID)
+                return $input;
+            };
+
+            // Áp dụng hàm xử lý cho mỗi dòng input
+            $sourceDocIds = array_map($extractDocId, $sourceDocIds);
+
             if (empty($sourceDocIds)) {
                 return redirect()->back()
                     ->with('error', 'Không tìm thấy ID tài liệu hợp lệ.')
