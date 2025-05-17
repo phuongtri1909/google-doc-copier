@@ -303,7 +303,7 @@ class CopyJobController extends Controller
                     $query->whereNull('email');
                 }
             })
-            ->get(['id', 'status', 'current_position', 'total_sentences', 'destination_doc_id', 'interval_seconds', 'source_title', 'destination_title']);
+            ->get(['id', 'status', 'current_position', 'total_sentences', 'destination_doc_id', 'interval_seconds', 'source_title', 'destination_title','parent_folder_id', 'document_folder_id']);
 
         $jobsArray = [];
         foreach ($jobs as $job) {

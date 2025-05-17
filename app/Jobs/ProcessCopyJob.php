@@ -62,33 +62,20 @@ class ProcessCopyJob implements ShouldQueue
             if ($this->copyJob->current_position === 0) {
                 $sourceDocTitle = $sourceDoc->getTitle();
                 $parentFolderId = $this->copyJob->folder_id;
-                $newFolderId = null;
 
-                // Tìm folder có tên trùng trong parent folder
-                $existingFolders = $driveService->files->listFiles([
-                    'q' => "mimeType='application/vnd.google-apps.folder' and name='" . $sourceDocTitle . "' and '" . $parentFolderId . "' in parents and trashed=false",
-                    'spaces' => 'drive',
-                    'fields' => 'files(id, name)'
+                // Tạo folder mới mỗi lần, không cần kiểm tra tồn tại
+                $folderMetadata = new \Google\Service\Drive\DriveFile([
+                    'name' => $sourceDocTitle,
+                    'mimeType' => 'application/vnd.google-apps.folder',
+                    'parents' => [$parentFolderId]
                 ]);
 
-                if (count($existingFolders->getFiles()) > 0) {
-                    // Sử dụng folder đã tồn tại
-                    $newFolderId = $existingFolders->getFiles()[0]->getId();
-                } else {
-                    // Tạo folder mới nếu chưa tồn tại
-                    $folderMetadata = new \Google\Service\Drive\DriveFile([
-                        'name' => $sourceDocTitle,
-                        'mimeType' => 'application/vnd.google-apps.folder',
-                        'parents' => [$parentFolderId]
-                    ]);
+                $newFolder = $driveService->files->create($folderMetadata, [
+                    'fields' => 'id'
+                ]);
+                $newFolderId = $newFolder->getId();
 
-                    $newFolder = $driveService->files->create($folderMetadata, [
-                        'fields' => 'id'
-                    ]);
-                    $newFolderId = $newFolder->getId();
-                }
-
-                // Di chuyển destination document vào folder
+                // Di chuyển destination document vào folder mới
                 $fileMetadata = new \Google\Service\Drive\DriveFile();
                 $driveService->files->update(
                     $this->copyJob->destination_doc_id,
@@ -100,8 +87,9 @@ class ProcessCopyJob implements ShouldQueue
                     ]
                 );
 
-                // Cập nhật folder ID trong CopyJob
-                $this->copyJob->folder_id = $newFolderId;
+                // Lưu cả parent_folder_id và document_folder_id
+                $this->copyJob->parent_folder_id = $parentFolderId;
+                $this->copyJob->document_folder_id = $newFolderId;
                 $this->copyJob->save();
 
                 // Get destination document title
@@ -180,14 +168,14 @@ class ProcessCopyJob implements ShouldQueue
                                             'text' => $text
                                         ])
                                     ]);
-                                    
+
                                     $currentInsertIndex += $textLength;
                                 }
                             }
                         }
                     }
 
-                    if (!$paragraphIsEmpty && $isHeading === true) {
+                    if ($paragraphIsEmpty) {
                         $requests[] = new Request([
                             'insertText' => new InsertTextRequest([
                                 'location' => new Location(['index' => $currentInsertIndex]),

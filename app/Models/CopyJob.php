@@ -22,7 +22,9 @@ class CopyJob extends Model
         'interval_seconds',
         'error_message',
         'source_title',
-        'destination_title'
+        'destination_title',
+        'parent_folder_id',
+        'document_folder_id',
     ];
     
     protected $casts = [
